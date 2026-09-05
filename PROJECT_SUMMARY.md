@@ -138,6 +138,21 @@ IEEE_TCSVT_BiDA/
 - `Mlp`: Feed-forward network with GELU activation
 - `Attention_triple_branches`: Multi-head attention computing source self-attn, target self-attn, and cross-domain attention (source-query + target-key/value)
 - `Block_triple_branches`: Transformer block with 4 output branches (source, target, target→source fusion, source→target fusion)
+- `TransformerEncoder`: `nn.TransformerEncoder` (norm-first) over the token sequence (refiner stream `t`)
+- `GCNLayer` / `VisionGraph`: 2-layer graph convolution over the token nodes with a fixed chain+self-loop normalized adjacency (source-domain secondary encoder, stream `s`)
+- `CNNEncoder`: 2-layer Conv1d + LayerNorm over the token sequence (target-domain secondary encoder, stream `s`)
+- `AdaptiveGate`: sigmoid-gated convex combination of the two streams
+- `CrossAttentionRefine`: residual multi-head cross-attention that cross-attends the gated output to the `[t, s]` memory
+- `TokenRefiner`: orchestrates `tokens → transformer_enc(t)` → `secondary(s)` → `gate(t,s)` → `cross_attn(gated, [t,s])`. The transformer/gate/cross-attention core is **shared** across domains (only the secondary encoder differs: VisionGraph for source, CNN for target) to keep source/target in a common space for the triple-branch blocks
+- `out_scale` (learnable, tiny init `0.01`): scales the refiner's residual contribution so training starts on the original BiDA trajectory and wakes the module up gradually
+
+**Forward integration (refiner insertion point):** after `pos_embedding` + `dropout`, before `self.blocks`:
+```python
+if self.use_refiner:
+    x     = x     + out_scale * refiner(x,     use_graph=True)   # source
+    x_tar = x_tar + out_scale * refiner(x_tar, use_graph=False)  # target
+```
+During inference only `x_tar` is refined (source is unused by the inference-only blocks). Enable/disable with `--use_refiner 0/1`; `--ref_shared 0` uses separate per-domain refiner params (note: separate params tend to collapse).
 
 **Dataset-specific configs:**
 - Houston13/18: `n_bands=48`, `num_classes=7`
@@ -548,3 +563,10 @@ main.py
 | `loss_type` | `softmax` | Loss function type |
 | `labelsmooth` | `off` | Enable/disable label smoothing |
 | `seed` | 2100 | Random seed |
+| `use_refiner` | `1` | Enable the token refiner (transformer+graph/CNN+gate+cross-attn) before the attention blocks |
+| `ref_depth` | `1` | Transformer-encoder layers inside the refiner |
+| `ref_heads` | `8` | Heads for the refiner transformer / cross-attention |
+| `ref_residual` | `1` | Residual (`1`) vs full-replacement (`0`) around the refiner |
+| `ref_shared` | `1` | Share the refiner core across src/tar (`1`) vs separate per-domain params (`0`) |
+| `ref_init_scale` | `0.01` | Initial value of the learnable refiner output scale (near-identity start) |
+| `ref_lr_scale` | `0.3` | Multiplier on `lr` for the refiner params only (backbone keeps `opts.lr`); `1.0` trains everything at `lr` |

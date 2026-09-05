@@ -35,7 +35,22 @@ def load_scheduler(model_name, model, opts):
 
     elif model_name == 'ssftt' or model_name == 'BiDA':
         # optimizer = optim.Adam(model.parameters(), lr=opts.lr)
-        optimizer = optim.SGD(model.parameters(), lr=opts.lr)
+        if getattr(opts, 'use_refiner', 0) and getattr(opts, 'ref_lr_scale', 1.0) != 1.0:
+            # train the freshly-initialized refiner params at a lower LR than the
+            # (pre-tuned) BiDA backbone to avoid destabilizing the source/target
+            # alignment learned by the triple-branch blocks.
+            ref_ids = set(id(p) for n, p in model.named_parameters()
+                          if 'refiner.' in n)
+            base_params, ref_params = [], []
+            for n, p in model.named_parameters():
+                if not p.requires_grad:
+                    continue
+                (ref_params if id(p) in ref_ids else base_params).append(p)
+            optimizer = optim.SGD(
+                [{'params': base_params, 'lr': opts.lr},
+                 {'params': ref_params, 'lr': opts.lr * opts.ref_lr_scale}])
+        else:
+            optimizer = optim.SGD(model.parameters(), lr=opts.lr)
         scheduler = None
 
     elif model_name == 'GAHT':

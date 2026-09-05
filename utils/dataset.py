@@ -6,14 +6,25 @@ import torch.utils.data
 import tifffile as tiff
 import random
 import scipy.io as io
+import h5py
 from sklearn import preprocessing
 
 def open_file(dataset):
     _, ext = os.path.splitext(dataset)
     ext = ext.lower()
     if ext == '.mat':
-        # Load Matlab array
-        return io.loadmat(dataset)
+        try:
+            # Load Matlab array (v7.0/v7.1)
+            return io.loadmat(dataset)
+        except NotImplementedError:
+            # MATLAB -v7.3 files are HDF5-based and cannot be read by
+            # scipy.io.loadmat. Fall back to h5py, reversing all axes to
+            # invert MATLAB's column-major storage so img/gt stay aligned.
+            f = h5py.File(dataset, 'r')
+            out = {k: np.array(v, dtype=np.float64).T for k, v in f.items()
+                   if isinstance(v, h5py.Dataset)}
+            f.close()
+            return out
     elif ext == '.tif' or ext == '.tiff':
         # Load TIFF file
         return tiff.imread(dataset)
@@ -272,6 +283,7 @@ class HSIDataset(torch.utils.data.Dataset):
         self.patch_size = patch_size
         self.ps = self.patch_size // 2  # padding size
         self.label = gt
+        self.data = image
         self.flip_augmentation = flip_augmentation
         self.radiation_augmentation = radiation_augmentation
         self.mixture_augmentation = mixture_augmentation

@@ -40,6 +40,20 @@ if __name__ == "__main__":
                         help='random seed ')
     parser.add_argument('--re_ratio', type=int, default=1,
                         help='random seed ')
+    parser.add_argument("--use_refiner", type=int, default=1,
+                        help="BiDA token refiner (transformer+graph/CNN+gate+cross-attn) before attention blocks")
+    parser.add_argument("--ref_depth", type=int, default=1,
+                        help="depth of the per-domain transformer encoder in the refiner")
+    parser.add_argument("--ref_heads", type=int, default=8,
+                        help="number of heads for the refiner transformer / cross-attention")
+    parser.add_argument("--ref_residual", type=int, default=1,
+                        help="residual (1) or full-replacement (0) connection around the token refiner")
+    parser.add_argument("--ref_shared", type=int, default=1,
+                        help="share refiner core (transformer/gate/cross-attn) across src/tar (1) or use separate ones (0)")
+    parser.add_argument("--ref_init_scale", type=float, default=0.01,
+                        help="initial value of the refiner output scale (small -> near-identity start, gradual wake-up)")
+    parser.add_argument("--ref_lr_scale", type=float, default=0.3,
+                        help="multiplier on lr for the refiner params only (1.0 = same lr as backbone; <1 trains the new refiner gently to avoid destabilizing BiDA's alignment)")
     opts = parser.parse_args()
 
     device = torch.device("cuda:{}".format(opts.device))
